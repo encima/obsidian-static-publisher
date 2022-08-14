@@ -1,18 +1,23 @@
-import { App, Plugin, PluginSettingTab, Setting } from 'obsidian';
-const Minio = require("minio");
+import { throws } from 'assert';
+import { Client } from 'minio';
+import { App, Plugin, PluginSettingTab, Setting, TFile } from 'obsidian';
 
 interface S3PluginSettings {
 	accessKey: string;
 	secret: string;
 	bucket: string;
 	endpoint: string;
+	defaultFolder: string;
+	tag: string;
 }
 
 const DEFAULT_SETTINGS: S3PluginSettings = {
 	accessKey: '',
 	secret: '',
 	bucket: 'obsidian',
-	endpoint: 's3.eu-central-1.wasabisys.com'
+	endpoint: 's3.eu-central-1.wasabisys.com',
+	defaultFolder: '',
+	tag: 'published'
 }
 
 export default class S3Plugin extends Plugin {
@@ -21,7 +26,7 @@ export default class S3Plugin extends Plugin {
 	async onload() {
 		await this.loadSettings();
 
-		var minioClient = new Minio.Client({
+		var minioClient = new Client({
 			endPoint: this.settings.endpoint,
 			useSSL: true,
 			accessKey: this.settings.accessKey,
@@ -35,25 +40,48 @@ export default class S3Plugin extends Plugin {
 
 		// This adds a simple command that can be triggered anywhere
 		this.addCommand({
-			id: 'get-file-frontmatter',
-			name: 'Get File Frontmatter',
+			id: 'S3 Publish File',
+			name: 'Upload Active File to S3',
 			callback: () => {
 				var file = this.app.workspace.getActiveFile()
 				if (file) {
-					var content = this.app.metadataCache.getFileCache(file);
-					if (content?.frontmatter && content.frontmatter['published'] === true) {
-						this.app.vault.read(file).then(lines => {
-							minioClient.putObject(this.settings.bucket, this.app.workspace.getActiveFile()?.path, lines);
-						})
-
-					}
+					this.handleFile(file, minioClient);
 				}
 			}
 		});
-		
+
+		this.addCommand({
+			id: 'S3 Publish All Files',
+			name: 'Scan Workspace and upload to S3',
+			callback: () => {
+				this.app.vault.getMarkdownFiles().forEach(file => {
+					this.handleFile(file, minioClient);
+				});
+			}
+		});
+
 
 		// This adds a settings tab so the user can configure various aspects of the plugin
 		this.addSettingTab(new S3SettingTab(this.app, this));
+	}
+
+	handleFile(file: TFile, client: Client) {
+		var content = this.app.metadataCache.getFileCache(file);
+		if (content?.frontmatter && content.frontmatter[this.settings.tag] === true) {
+			this.app.vault.read(file).then(lines => {
+				let now = new Date();
+				let type = content?.frontmatter && content.frontmatter["type"] ? content.frontmatter["type"] + "/" : "";
+				let pub_name = `${type}${file.name.replace(/\s/g, "-")}`
+				if (type === "blog/") {
+					pub_name = `${type}${now.getFullYear()}-${("0" + (now.getMonth() + 1)).slice(2)}-${now.getDate()}.md`
+				}
+				client.putObject(this.settings.bucket, pub_name, lines).then(res => {
+					console.log(`${pub_name} published`)
+				}).catch(e => {
+					console.error(e)
+				})
+			})
+		}
 	}
 
 	onunload() {
@@ -88,13 +116,13 @@ class S3SettingTab extends PluginSettingTab {
 			.setName('S3 Credentials')
 			.setDesc('Enter your S3 creds here')
 			.addText(text => text
-				.setPlaceholder('Enter your key')
+				.setPlaceholder('Access Key')
 				.setValue(this.plugin.settings.accessKey)
 				.onChange(async (value) => {
 					this.plugin.settings.accessKey = value;
 					await this.plugin.saveSettings();
 				})).addText(text => text
-					.setPlaceholder('Enter your secret')
+					.setPlaceholder('Secret')
 					.setValue(this.plugin.settings.secret)
 					.onChange(async (value) => {
 						this.plugin.settings.secret = value;
@@ -105,21 +133,38 @@ class S3SettingTab extends PluginSettingTab {
 			.setName('S3 Bucket')
 			.setDesc('Enter your S3 config here')
 			.addText(text => text
-				.setPlaceholder('Enter your bucket')
+				.setPlaceholder('Bucket')
 				.setValue(this.plugin.settings.bucket)
 				.onChange(async (value) => {
 					this.plugin.settings.bucket = value;
 					await this.plugin.saveSettings();
-				}));
+				})).addText(text => text
+					.setPlaceholder('Default Folder')
+					.setValue(this.plugin.settings.defaultFolder)
+					.onChange(async (value) => {
+						this.plugin.settings.defaultFolder = value;
+						await this.plugin.saveSettings();
+					}));
 
 		new Setting(containerEl)
 			.setName('S3 Endpoint')
 			.setDesc('Enter your S3 URL here')
 			.addText(text => text
-				.setPlaceholder('Enter your endpoint')
+				.setPlaceholder('Endpoint')
 				.setValue(this.plugin.settings.endpoint)
 				.onChange(async (value) => {
 					this.plugin.settings.endpoint = value;
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
+			.setName('Tag')
+			.setDesc('Enter the tag name in the frontmatter for files to publish')
+			.addText(text => text
+				.setPlaceholder('Tag')
+				.setValue(this.plugin.settings.tag)
+				.onChange(async (value) => {
+					this.plugin.settings.tag = value;
 					await this.plugin.saveSettings();
 				}));
 	}
