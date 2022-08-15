@@ -3,7 +3,7 @@
 	"name": "S3 Static Publisher",
 	"version": "1.0.0",
 	"minAppVersion": "0.15.0",
-	"description": "This is a plugin to upload MD files with `published` in the frontmatter to a folder in an S3 bucket",
+	"description": "This is a plugin to upload MD files with a specified tag in the frontmatter to an S3 bucket",
 	"author": "encima",
 	"authorUrl": "https://github.com/encima",
 	"isDesktopOnly": false

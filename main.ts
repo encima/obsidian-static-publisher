@@ -75,7 +75,7 @@ export default class S3Plugin extends Plugin {
 				if (type === "blog/") {
 					pub_name = `${type}${now.getFullYear()}-${("0" + (now.getMonth() + 1)).slice(2)}-${now.getDate()}.md`
 				}
-				client.putObject(this.settings.bucket, pub_name, lines).then(res => {
+				client.putObject(this.settings.bucket, pub_name, lines, {"x-amz-acl": "public-read"}).then(res => {
 					console.log(`${pub_name} published`)
 				}).catch(e => {
 					console.error(e)
